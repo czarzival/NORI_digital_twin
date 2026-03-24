@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 
-const API_URL = 'https://nori-digital-twin.onrender.com/';
+const API_URL = 'https://nori-digital-twin.onrender.com';
 
 const INITIAL_PARAMS = {
   temperature: 28.0, salinity: 25.0, pH: 7.8, dissolved_oxygen: 6.5,

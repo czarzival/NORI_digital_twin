@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2 } from 'lucide-react';
 
-const API_URL = 'https://nori-digital-twin.onrender.com/';
+const API_URL = 'https://nori-digital-twin.onrender.com';
 
 const SWEEP_VARIABLES = [
   { id: 'temperature', label: 'Temperature (°C)', defaultMin: 20, defaultMax: 35, defaultStep: 1 },

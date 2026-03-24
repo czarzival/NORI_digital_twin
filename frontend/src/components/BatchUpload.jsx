@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 
-const API_URL = 'https://nori-digital-twin.onrender.com/';
+const API_URL = 'https://nori-digital-twin.onrender.com';
 
 export default function BatchUpload() {
   const [file, setFile] = useState(null);
