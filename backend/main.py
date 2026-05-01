@@ -21,6 +21,7 @@ app.add_middleware(
         "http://localhost:5173",
         "https://nori-digital-twin.vercel.app",
         "https://*.vercel.app",
+        "https://nori-digital-twin-git-main-czarzivals-projects.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
