@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom'; // ← add this
 import { supabase } from '../lib/supabaseClient';
 
 export default function LoginPage() {
@@ -7,6 +8,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const navigate = useNavigate(); // ← add this
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -19,11 +21,11 @@ export default function LoginPage() {
     if (error) {
       setStatus('error');
       setErrorMessage(error.message);
+      setLoading(false); // ← move this inside if/else
     } else {
       setStatus('success');
+      navigate('/predict', { replace: true }); // ← add this
     }
-
-    setLoading(false);
   };
 
   return (
