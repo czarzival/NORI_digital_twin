@@ -1,10 +1,9 @@
 fastapi>=0.110
 uvicorn>=0.29
-
 pandas>=2.3
 numpy>=2.2
-
 scikit-learn>=1.5
 python-multipart>=0.0.9
-
 lightgbm>=4.0
+supabase>=2.4
+PyJWT>=2.8

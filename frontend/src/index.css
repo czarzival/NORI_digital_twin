@@ -6,9 +6,9 @@
 
 @layer base {
   body {
-    background-color: #000000;
-    color: #ffffff;
-    font-family: 'Inter', sans-serif;
+    background-color: #0a0a0a;
+    color: #e8e8e6;
+    font-family: 'Courier New', monospace;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

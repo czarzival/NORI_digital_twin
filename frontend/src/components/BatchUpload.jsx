@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import { apiPost } from '../lib/api';
 import { Loader2 } from 'lucide-react';
-
-const API_URL = 'https://nori-digital-twin.onrender.com';
 
 export default function BatchUpload() {
   const [file, setFile] = useState(null);
@@ -46,9 +44,7 @@ export default function BatchUpload() {
     formData.append('file', file);
 
     try {
-      const { data } = await axios.post(`${API_URL}/upload-csv`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const { data } = await apiPost('/upload-csv', formData);
       setResults(data);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Batch prediction failed');

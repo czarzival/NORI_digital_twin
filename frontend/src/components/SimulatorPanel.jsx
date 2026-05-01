@@ -1,34 +1,15 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import { apiPost } from '../lib/api';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Loader2 } from 'lucide-react';
-
-const API_URL = 'https://nori-digital-twin.onrender.com';
-
-const SWEEP_VARIABLES = [
-  { id: 'temperature', label: 'Temperature (°C)', defaultMin: 20, defaultMax: 35, defaultStep: 1 },
-  { id: 'salinity', label: 'Salinity (ppt)', defaultMin: 15, defaultMax: 35, defaultStep: 1 },
-  { id: 'pH', label: 'pH Level', defaultMin: 6.5, defaultMax: 9.0, defaultStep: 0.1 },
-  { id: 'dissolved_oxygen', label: 'Dissolved O2 (mg/L)', defaultMin: 3, defaultMax: 10, defaultStep: 0.5 },
-  { id: 'light_hours', label: 'Light Hours (hrs)', defaultMin: 6, defaultMax: 16, defaultStep: 1 },
-  { id: 'stocking_density', label: 'Stocking Density (g/m²)', defaultMin: 1, defaultMax: 50, defaultStep: 2 },
-  { id: 'nutrient_level', label: 'Nutrient Level (%)', defaultMin: 0, defaultMax: 100, defaultStep: 5 },
-  { id: 'tidal_amplitude', label: 'Tidal Amplitude (m)', defaultMin: 0.1, defaultMax: 3.0, defaultStep: 0.2 },
-  { id: 'tidal_frequency', label: 'Tidal Freq (cyc/day)', defaultMin: 0.5, defaultMax: 4.0, defaultStep: 0.5 },
-];
-
-const BASE_PARAMS = {
-  temperature: 28.0, salinity: 25.0, pH: 7.8, dissolved_oxygen: 6.5, 
-  light_hours: 12.0, stocking_density: 20.0, nutrient_level: 50.0, 
-  tidal_amplitude: 1.5, tidal_frequency: 2.0
-};
+import { Loader2, Info } from 'lucide-react';
+import { MAIN_CONFIG, INITIAL_PARAMS } from '../constants';
 
 export default function SimulatorPanel() {
-  const [sweepVar, setSweepVar] = useState(SWEEP_VARIABLES[0].id);
-  const selectedConfig = SWEEP_VARIABLES.find(v => v.id === sweepVar);
-  const [min, setMin] = useState(selectedConfig.defaultMin);
-  const [max, setMax] = useState(selectedConfig.defaultMax);
-  const [step, setStep] = useState(selectedConfig.defaultStep);
+  const [sweepVar, setSweepVar] = useState(MAIN_CONFIG[0].key);
+  const selectedConfig = MAIN_CONFIG.find(v => v.key === sweepVar);
+  const [min, setMin] = useState(selectedConfig.min);
+  const [max, setMax] = useState(selectedConfig.max);
+  const [step, setStep] = useState(selectedConfig.step * 10);
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
@@ -36,10 +17,10 @@ export default function SimulatorPanel() {
   const handleSweepVarChange = (e) => {
     const val = e.target.value;
     setSweepVar(val);
-    const cfg = SWEEP_VARIABLES.find(v => v.id === val);
-    setMin(cfg.defaultMin);
-    setMax(cfg.defaultMax);
-    setStep(cfg.defaultStep);
+    const cfg = MAIN_CONFIG.find(v => v.key === val);
+    setMin(cfg.min);
+    setMax(cfg.max);
+    setStep(cfg.step * 5);
     setData(null);
   };
 
@@ -47,19 +28,34 @@ export default function SimulatorPanel() {
     setLoading(true);
     try {
       const payload = {
-        base_params: BASE_PARAMS,
+        base_params: INITIAL_PARAMS,
         sweep_variable: sweepVar,
         sweep_min: parseFloat(min),
         sweep_max: parseFloat(max),
         sweep_step: parseFloat(step)
       };
-      const res = await axios.post(`${API_URL}/simulate`, payload);
-      const processedResults = res.data.results.map(pt => ({
-        ...pt,
-        conf_low: Math.max(0, pt.predicted_growth * 0.85),
-        conf_high: pt.predicted_growth * 1.15
-      }));
-      setData({ results: processedResults, optimal: res.data.optimal_value, optimalGrowth: res.data.optimal_growth });
+      const res = await apiPost('/simulate', payload);
+      
+      const results = res.data.results;
+      const smoothed = results.map((pt, i) => {
+        if (i === 0 || i === results.length - 1) return pt;
+        const prev = results[i-1].predicted_growth;
+        const next = results[i+1].predicted_growth;
+        const current = pt.predicted_growth;
+        return {
+          ...pt,
+          predicted_growth: (prev + current + next) / 3,
+          conf_low: Math.max(0, pt.predicted_growth * 0.85),
+          conf_high: pt.predicted_growth * 1.15
+        };
+      });
+
+      setData({ 
+        results: smoothed, 
+        optimal: res.data.optimal_value, 
+        optimalGrowth: res.data.optimal_growth,
+        label: selectedConfig.label
+      });
     } catch (err) {
       console.error(err);
     } finally {
@@ -68,45 +64,45 @@ export default function SimulatorPanel() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6">
+    <div className="flex flex-col lg:flex-row gap-6 animate-in fade-in duration-500">
       <div className="lg:w-80 border border-border bg-surface p-8 rounded-sm shrink-0">
-        <h2 className="text-sm font-medium text-primary mb-8">Simulation Config</h2>
+        <h2 className="text-[10px] text-labels uppercase tracking-[0.2em] mb-8">Simulation Config</h2>
         
-        <div className="space-y-6 text-sm">
+        <div className="space-y-6 text-[11px]">
           <div>
-            <label className="text-secondary text-xs mb-2 block">Variable to Sweep</label>
+            <label className="text-secondary uppercase tracking-widest mb-2 block">Variable to Sweep</label>
             <select 
-              className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-secondary transition-colors appearance-none"
+              className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-accent transition-colors appearance-none font-mono"
               value={sweepVar}
               onChange={handleSweepVarChange}
             >
-              {SWEEP_VARIABLES.map(v => (
-                <option key={v.id} value={v.id}>{v.label}</option>
+              {MAIN_CONFIG.map(v => (
+                <option key={v.key} value={v.key}>{v.label}</option>
               ))}
             </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-secondary text-xs mb-2 block">Min</label>
+              <label className="text-secondary uppercase tracking-widest mb-2 block">Min</label>
               <input type="number" value={min} onChange={(e) => setMin(e.target.value)}
-                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-secondary font-mono" />
+                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-accent font-mono" />
             </div>
             <div>
-              <label className="text-secondary text-xs mb-2 block">Max</label>
+              <label className="text-secondary uppercase tracking-widest mb-2 block">Max</label>
               <input type="number" value={max} onChange={(e) => setMax(e.target.value)}
-                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-secondary font-mono" />
+                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-accent font-mono" />
             </div>
             <div className="col-span-2">
-              <label className="text-secondary text-xs mb-2 block">Step Size</label>
+              <label className="text-secondary uppercase tracking-widest mb-2 block">Step Size</label>
               <input type="number" value={step} onChange={(e) => setStep(e.target.value)}
-                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-secondary font-mono" />
+                className="w-full bg-background border border-border rounded-sm px-3 py-2 text-primary focus:outline-none focus:border-accent font-mono" />
             </div>
           </div>
 
           <button 
             onClick={handleSimulate} disabled={loading}
-            className="w-full mt-6 flex flex-row items-center justify-center py-2.5 border border-border bg-background hover:bg-border/50 text-white transition-colors duration-150 text-xs font-medium rounded-sm disabled:opacity-50"
+            className="w-full mt-6 flex flex-row items-center justify-center py-3 bg-accent text-black hover:bg-white transition-all text-[11px] uppercase tracking-widest font-bold rounded-sm disabled:opacity-50"
           >
             {loading && <Loader2 className="animate-spin mr-2 w-4 h-4" />}
             Run Simulation
@@ -115,63 +111,91 @@ export default function SimulatorPanel() {
       </div>
 
       <div className="flex-1 border border-border bg-surface p-8 rounded-sm min-h-[500px] flex flex-col">
-        <h2 className="text-sm font-medium text-primary mb-8">Growth Trajectory</h2>
+        <h2 className="text-[10px] text-labels uppercase tracking-[0.2em] mb-8">Growth Trajectory</h2>
 
         {data ? (
-          <div className="flex-1 animate-in fade-in duration-300 flex flex-col">
-            <div className="flex-1 min-h-[300px]">
+          <div className="flex-1 animate-in fade-in duration-500 flex flex-col">
+            <div className="flex-1 min-h-[350px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.results} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke="#1a1a1a" />
+                <AreaChart data={data.results} margin={{ top: 20, right: 30, left: 20, bottom: 30 }}>
+                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
                   <XAxis 
                     dataKey="value" 
-                    stroke="#333" 
-                    tick={{fill: '#666', fontSize: 11, fontFamily: 'monospace'}} 
+                    stroke="rgba(255,255,255,0.1)" 
+                    tick={{fill: '#666', fontSize: 10, fontFamily: 'monospace'}} 
                     tickLine={false} 
                     axisLine={false}
                     dy={10}
+                    label={{ 
+                      value: data.label, 
+                      position: 'insideBottom', 
+                      offset: -20, 
+                      fill: '#666', 
+                      fontSize: 11, 
+                      fontFamily: 'Courier New, monospace' 
+                    }}
                   />
                   <YAxis 
-                    stroke="#333" 
-                    tick={{fill: '#666', fontSize: 11, fontFamily: 'monospace'}} 
+                    stroke="rgba(255,255,255,0.1)" 
+                    tick={{fill: '#666', fontSize: 10, fontFamily: 'monospace'}} 
                     tickLine={false} 
                     axisLine={false}
                     dx={-10}
+                    label={{ 
+                      value: 'Yield (g/wk)', 
+                      angle: -90, 
+                      position: 'insideLeft', 
+                      offset: -10,
+                      fill: '#666', 
+                      fontSize: 11, 
+                      fontFamily: 'Courier New, monospace' 
+                    }}
                   />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: '4px', fontSize: '12px' }}
-                    itemStyle={{ color: '#fff', fontFamily: 'monospace' }}
-                    labelStyle={{ color: '#666', fontFamily: 'monospace', marginBottom: '4px' }}
-                    cursor={{ stroke: '#333', strokeWidth: 1, strokeDasharray: '4 4' }}
+                    contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', fontSize: '11px', fontFamily: 'monospace' }}
+                    itemStyle={{ color: '#1dce8a' }}
+                    cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1 }}
                   />
                   
                   {data.optimal && (
-                    <ReferenceLine x={data.optimal} stroke="#00d4aa" strokeDasharray="3 3" label={{ position: 'top', value: 'Optimal', fill: '#00d4aa', fontSize: 11, fontFamily: 'monospace' }} />
+                    <ReferenceLine 
+                      x={data.optimal} 
+                      stroke="#1dce8a" 
+                      strokeDasharray="4 4" 
+                    />
                   )}
                   
-                  <Area type="monotone" dataKey="conf_high" stroke="none" fill="#1a1a1a" fillOpacity={0.2} />
-                  <Area type="monotone" dataKey="predicted_growth" stroke="#fff" strokeWidth={1} fill="#111" />
-                  <Area type="monotone" dataKey="conf_low" stroke="none" fill="#0d0d0d" fillOpacity={1} />
+                  <Area type="monotone" dataKey="conf_high" stroke="none" fill="rgba(29, 206, 138, 0.05)" />
+                  <Area type="monotone" dataKey="predicted_growth" stroke="#1dce8a" strokeWidth={2} fill="rgba(29, 206, 138, 0.1)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             
-            <div className="mt-8 pt-6 border-t border-border flex justify-between items-center">
-              <div>
-                <p className="text-[11px] text-secondary uppercase tracking-widest mb-1">Optimal Value</p>
-                <div className="flex items-baseline space-x-3 font-mono">
-                  <span className="text-2xl font-light text-primary">{data.optimal}</span>
+            <div className="mt-8 pt-8 border-t border-border flex flex-col space-y-6">
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[10px] text-secondary uppercase tracking-widest mb-1">Optimal {data.label.split(' ')[0]}</p>
+                  <div className="flex items-baseline space-x-3 font-mono">
+                    <span className="text-3xl font-light text-primary">{data.optimal.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-secondary uppercase tracking-widest mb-1">Peak Yield</p>
+                  <span className="text-3xl font-light text-accent font-mono">{data.optimalGrowth.toFixed(2)} <span className="text-xs text-secondary">g/wk</span></span>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-[11px] text-secondary uppercase tracking-widest mb-1">Max Yield</p>
-                <span className="text-2xl font-light text-accent font-mono">{data.optimalGrowth} <span className="text-sm text-secondary">g/wk</span></span>
+
+              <div className="bg-[#0f2a1f] p-4 rounded-sm border border-accent/20 flex items-start space-x-3">
+                <Info className="w-4 h-4 text-accent mt-0.5" />
+                <p className="text-[11px] text-accent leading-relaxed font-mono italic">
+                  "Holding all other parameters at current values, {data.label.split(' ')[0]} peaks at {data.optimal.toFixed(1)} with a yield of {data.optimalGrowth.toFixed(2)} g/wk."
+                </p>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-secondary opacity-60">
-            <p className="text-sm">Enter parameters to simulate growth trajectory.</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-secondary opacity-30 text-center">
+            <p className="text-[11px] uppercase tracking-widest">Select variable and run sweep<br/>to visualize response curve</p>
           </div>
         )}
       </div>
