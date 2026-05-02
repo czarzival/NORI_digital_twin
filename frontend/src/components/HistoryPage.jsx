@@ -1,13 +1,41 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiGet, apiPatch } from '../lib/api';
-import { Loader2, CheckCircle2, Edit2 } from 'lucide-react';
+import { Loader2, CheckCircle2, Edit2, Radio } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 
 export default function HistoryPage() {
   const [predictions, setPredictions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
     fetchPredictions();
+
+    // Subscribe to Realtime inserts
+    const channel = supabase
+      .channel('realtime:predictions')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'predictions',
+        },
+        (payload) => {
+          console.log('New prediction received!', payload);
+          // Append new prediction to state (at the top to match desc order)
+          setPredictions((prev) => [payload.new, ...prev]);
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setIsLive(true);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchPredictions = async () => {
@@ -49,7 +77,15 @@ export default function HistoryPage() {
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <h1 className="text-[10px] text-labels uppercase tracking-[0.2em]">Prediction History</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-[10px] text-labels uppercase tracking-[0.2em]">Prediction History</h1>
+          {isLive && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-accent/10 border border-accent/20 rounded-full">
+              <div className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" />
+              <span className="text-[8px] text-accent font-bold uppercase tracking-widest">Live</span>
+            </div>
+          )}
+        </div>
         
         <div className="flex flex-wrap gap-3">
           <div className="bg-[#1a1a1a] rounded-sm px-3.5 py-2 border border-white/5 flex items-baseline gap-2">
