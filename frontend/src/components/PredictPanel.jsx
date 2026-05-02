@@ -10,6 +10,8 @@ export default function PredictPanel({ currentParams: propParams, onParamsChange
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [isSaved, setIsSaved] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
   
   // Feature 3 states
   const [importance, setImportance] = useState([]);
@@ -23,6 +25,7 @@ export default function PredictPanel({ currentParams: propParams, onParamsChange
   const handlePredict = async () => {
     setLoading(true);
     setError(null);
+    setIsSaved(false);
     try {
       const { data } = await apiPost('/predict', params);
       setResult(data);
@@ -47,6 +50,22 @@ export default function PredictPanel({ currentParams: propParams, onParamsChange
       setError('Prediction failed. Check model endpoint.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaveLoading(true);
+    try {
+      await apiPost('/predictions/save', {
+        ...params,
+        ...result
+      });
+      setIsSaved(true);
+    } catch (err) {
+      console.error('Save failed', err);
+      setError('Failed to save prediction to history.');
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -105,35 +124,52 @@ export default function PredictPanel({ currentParams: propParams, onParamsChange
       {/* Metric Cards */}
       {result && (
         <div className={`space-y-6 ${loading ? 'animate-pulse opacity-60' : ''}`}>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="border border-border bg-surface p-6 rounded-sm">
-              <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Predicted Yield</span>
-              <span className="text-2xl font-mono text-accent">{result.yield.toFixed(1)}</span>
-              <span className="text-[10px] text-secondary ml-1">g/wk</span>
+          <div className="flex justify-between items-center">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 flex-1">
+              <div className="border border-border bg-surface p-6 rounded-sm">
+                <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Predicted Yield</span>
+                <span className="text-2xl font-mono text-accent">{result.yield.toFixed(1)}</span>
+                <span className="text-[10px] text-secondary ml-1">g/wk</span>
+              </div>
+              <div className="border border-border bg-surface p-6 rounded-sm">
+                <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Lower Bound</span>
+                <span className="text-2xl font-mono text-primary">{result.lower.toFixed(1)}</span>
+              </div>
+              <div className="border border-border bg-surface p-6 rounded-sm">
+                <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Upper Bound</span>
+                <span className="text-2xl font-mono text-primary">{result.upper.toFixed(1)}</span>
+              </div>
+              <div className="border border-border bg-surface p-6 rounded-sm">
+                <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Interval Width</span>
+                <span className={`text-2xl font-mono ${(result.upper - result.lower) > 14 ? 'text-amber-500' : 'text-primary'}`}>
+                  {(result.upper - result.lower).toFixed(1)}
+                </span>
+              </div>
+              <div className="border border-border bg-surface p-6 rounded-sm">
+                <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Status</span>
+                <span className={`text-xl font-bold uppercase tracking-wider ${
+                  result.status === 'Excellent' ? 'text-accent' : 
+                  result.status === 'Good' ? 'text-blue-400' : 
+                  result.status === 'Fair' ? 'text-amber-500' : 'text-red-500'
+                }`}>
+                  {result.status}
+                </span>
+              </div>
             </div>
-            <div className="border border-border bg-surface p-6 rounded-sm">
-              <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Lower Bound</span>
-              <span className="text-2xl font-mono text-primary">{result.lower.toFixed(1)}</span>
-            </div>
-            <div className="border border-border bg-surface p-6 rounded-sm">
-              <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Upper Bound</span>
-              <span className="text-2xl font-mono text-primary">{result.upper.toFixed(1)}</span>
-            </div>
-            <div className="border border-border bg-surface p-6 rounded-sm">
-              <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Interval Width</span>
-              <span className={`text-2xl font-mono ${(result.upper - result.lower) > 14 ? 'text-amber-500' : 'text-primary'}`}>
-                {(result.upper - result.lower).toFixed(1)}
-              </span>
-            </div>
-            <div className="border border-border bg-surface p-6 rounded-sm">
-              <span className="block text-[10px] text-labels uppercase tracking-widest mb-2">Status</span>
-              <span className={`text-xl font-bold uppercase tracking-wider ${
-                result.status === 'Excellent' ? 'text-accent' : 
-                result.status === 'Good' ? 'text-blue-400' : 
-                result.status === 'Fair' ? 'text-amber-500' : 'text-red-500'
-              }`}>
-                {result.status}
-              </span>
+
+            <div className="ml-6 flex flex-col gap-3">
+              <button
+                onClick={handleSave}
+                disabled={saveLoading || isSaved}
+                className={`px-6 py-4 rounded-sm text-[10px] uppercase tracking-[0.2em] font-bold transition-all flex items-center justify-center min-w-[160px] ${
+                  isSaved 
+                    ? 'bg-[#0f2a1f] text-accent border border-accent/30 cursor-default' 
+                    : 'bg-white text-black hover:bg-accent hover:text-black border border-transparent'
+                }`}
+              >
+                {saveLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : isSaved ? <CheckCircle2 className="w-4 h-4 mr-2" /> : null}
+                {isSaved ? 'Saved to History' : 'Save Prediction'}
+              </button>
             </div>
           </div>
 

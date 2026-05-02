@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiGet, apiPost, apiPatch } from '../lib/api';
 import { Calendar, Target, Activity, Loader2, Info, Plus, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 
 export default function CyclePlannerPanel({ currentYield: initialYield, result }) {
   const [cycles, setCycles] = useState([]);
@@ -17,6 +18,30 @@ export default function CyclePlannerPanel({ currentYield: initialYield, result }
 
   useEffect(() => {
     fetchCycles();
+
+    // Realtime subscription for cycle updates (e.g. harvest status)
+    const channel = supabase
+      .channel('realtime:cycles')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cycles' },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            setCycles(prev => {
+              const exists = prev.find(c => c.id === payload.new.id);
+              if (exists) {
+                return prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c);
+              }
+              return [payload.new, ...prev];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchCycles = async () => {
@@ -75,13 +100,17 @@ export default function CyclePlannerPanel({ currentYield: initialYield, result }
   };
 
   const handleHarvest = async (cycleId, actualYield) => {
+    setActionLoading(true);
     try {
-      await apiPatch(`/cycles/${cycleId}/harvest`, {
-        actual_yield: parseFloat(actualYield)
+      const { data } = await apiPost(`/cycles/${cycleId}/harvest`, {
+        actual_yield: actualYield ? parseFloat(actualYield) : null
       });
-      fetchCycles();
+      // Update local state directly for instant feedback
+      setCycles(prev => prev.map(c => c.id === cycleId ? data : c));
     } catch (err) {
       console.error('Failed to harvest', err);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -131,7 +160,7 @@ export default function CyclePlannerPanel({ currentYield: initialYield, result }
                   <span className={`text-[9px] uppercase tracking-tighter px-1.5 py-0.5 rounded-sm ${
                     cycle.status === 'active' ? 'bg-[#0f2a1f] text-accent' : 'bg-[#1a1a1a] text-[#666]'
                   }`}>
-                    {cycle.status}
+                    {cycle.status === 'harvested' ? 'Completed' : cycle.status}
                   </span>
                 </div>
                 <span className="text-[11px] text-[#666] font-mono">
@@ -210,7 +239,7 @@ export default function CyclePlannerPanel({ currentYield: initialYield, result }
                 <span className={`px-2 py-1 rounded-sm text-[10px] uppercase font-bold tracking-widest ${
                   selectedCycle.status === 'active' ? 'bg-[#0f2a1f] text-accent border border-accent/20' : 'bg-[#1a1a1a] text-[#666] border border-white/5'
                 }`}>
-                  {selectedCycle.status}
+                  {selectedCycle.status === 'harvested' ? 'Completed' : selectedCycle.status}
                 </span>
               </div>
             </div>
@@ -256,7 +285,7 @@ export default function CyclePlannerPanel({ currentYield: initialYield, result }
                           ) : (
                             <div className="flex items-center gap-2">
                               <span className="text-[#333]">{checkin.projected_biomass.toFixed(1)} g</span>
-                              {checkin.week_number <= 5 && ( // Mock: allow logging for current/past weeks
+                              {selectedCycle.status === 'active' && checkin.week_number <= 5 && (
                                 <LogInput onLog={(val) => handleLogBiomass(selectedCycle.id, checkin.week_number, val)} />
                               )}
                             </div>
@@ -276,14 +305,14 @@ export default function CyclePlannerPanel({ currentYield: initialYield, result }
             )}
             
             {selectedCycle.status === 'harvested' && (
-              <div className="p-6 bg-[#1a1a1a] rounded-sm border border-white/5 flex justify-between items-center">
+              <div className="p-6 bg-[#1a1a1a] rounded-sm border border-accent/20 flex justify-between items-center animate-in zoom-in-95 duration-500">
                 <div>
-                  <p className="text-[10px] text-[#666] uppercase tracking-widest mb-1">Final Yield</p>
-                  <p className="text-2xl font-mono text-accent">{selectedCycle.actual_yield?.toFixed(2)} <span className="text-sm">g/wk</span></p>
+                  <p className="text-[10px] text-accent uppercase tracking-widest mb-1 font-bold">Harvest Completed</p>
+                  <p className="text-2xl font-mono text-white">{selectedCycle.actual_yield?.toFixed(2)} <span className="text-sm text-secondary">g/wk</span></p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] text-[#666] uppercase tracking-widest mb-1">Harvested On</p>
-                  <p className="text-xs text-[#e8e8e6]">{new Date(selectedCycle.harvested_at).toLocaleDateString()}</p>
+                  <p className="text-[10px] text-[#666] uppercase tracking-widest mb-1">Harvest Date</p>
+                  <p className="text-xs text-[#e8e8e6] font-mono">{new Date(selectedCycle.harvested_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                 </div>
               </div>
             )}

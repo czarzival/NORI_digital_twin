@@ -127,28 +127,37 @@ async def predict(data: PredictionInput, current_user: dict = Depends(get_curren
         "status": status
     }
 
-    # Log to DB
-    try:
-        supabase_admin.table("predictions").insert({
-            "user_id": current_user["sub"],
-            "temperature": data.temperature,
-            "salinity": data.salinity,
-            "ph": data.ph,
-            "dissolved_o2": data.dissolved_o2,
-            "light_hours": data.light_hours,
-            "stock_density": data.stock_density,
-            "nutrient_level": data.nutrient_level,
-            "tidal_amplitude": data.tidal_amplitude,
-            "tidal_frequency": data.tidal_frequency,
-            "predicted_yield": result["yield"],
-            "lower_bound": result["lower"],
-            "upper_bound": result["upper"],
-            "status": result["status"],
-        }).execute()
-    except Exception as e:
-        print(f"DB log failed (non-fatal): {e}")
-
     return result
+
+@router.post("/predictions/save")
+async def save_prediction(data: dict, current_user: dict = Depends(get_current_user)):
+    try:
+        # Support both flat columns and a JSON 'input_params' field if needed
+        # For now, we'll keep the flat structure as requested by current DB usage
+        payload = {
+            "user_id": current_user["sub"],
+            "predicted_yield": data.get("yield"),
+            "lower_bound": data.get("lower"),
+            "upper_bound": data.get("upper"),
+            "status": data.get("status"),
+            "cycle_id": data.get("cycle_id"), # Optional
+            # Flat input params
+            "temperature": data.get("temperature"),
+            "salinity": data.get("salinity"),
+            "ph": data.get("ph"),
+            "dissolved_o2": data.get("dissolved_o2"),
+            "light_hours": data.get("light_hours"),
+            "stock_density": data.get("stock_density"),
+            "nutrient_level": data.get("nutrient_level"),
+            "tidal_amplitude": data.get("tidal_amplitude"),
+            "tidal_frequency": data.get("tidal_frequency"),
+        }
+        
+        response = supabase_admin.table("predictions").insert(payload).execute()
+        return response.data[0]
+    except Exception as e:
+        print(f"Save failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/simulate")
 async def simulate(data: dict, current_user: dict = Depends(get_current_user)):
@@ -284,22 +293,67 @@ async def update_checkin(cycle_id: str, data: dict, current_user: dict = Depends
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.patch("/cycles/{cycle_id}/harvest")
-async def harvest_cycle(cycle_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+@router.post("/cycles/{cycle_id}/harvest")
+async def harvest_cycle(cycle_id: str, data: dict = None, current_user: dict = Depends(get_current_user)):
     try:
-        # Verify ownership
-        cycle = supabase_admin.table("cycles").select("user_id").eq("id", cycle_id).execute()
-        if not cycle.data or cycle.data[0]["user_id"] != current_user["sub"]:
+        # 1. Verify ownership and get cycle data
+        cycle_res = supabase_admin.table("cycles").select("*, cycle_checkins(*)").eq("id", cycle_id).execute()
+        if not cycle_res.data or cycle_res.data[0]["user_id"] != current_user["sub"]:
             raise HTTPException(status_code=403, detail="Forbidden")
-            
-        supabase_admin.table("cycles").update({
+        
+        cycle = cycle_res.data[0]
+        
+        # 2. Compute Harvest Yield
+        harvest_yield = data.get("actual_yield") if data else None
+        
+        if harvest_yield is None:
+            # Option A: Latest check-in biomass
+            checkins = cycle.get("cycle_checkins", [])
+            logged_checkins = [c for c in checkins if c.get("actual_biomass") is not None]
+            if logged_checkins:
+                # Sort by week and get latest
+                latest = sorted(logged_checkins, key=lambda x: x["week_number"])[-1]
+                harvest_yield = latest["actual_biomass"]
+            else:
+                # Option B: Latest prediction from predictions table
+                pred_res = supabase_admin.table("predictions") \
+                    .select("predicted_yield") \
+                    .eq("user_id", current_user["sub"]) \
+                    .order("created_at", desc=True) \
+                    .limit(1) \
+                    .execute()
+                
+                if pred_res.data:
+                    harvest_yield = pred_res.data[0]["predicted_yield"]
+                else:
+                    # Option C: Estimated from growth curve (Week 12 value)
+                    # Based on the RAMP logic in create_cycle
+                    total_biomass = 0
+                    weekly_yield = cycle.get("weekly_yield", 0)
+                    for ramp_val in RAMP:
+                        total_biomass += weekly_yield * ramp_val
+                    harvest_yield = round(total_biomass, 2)
+
+        # 3. Update cycles table
+        update_data = {
             "status": "harvested",
-            "actual_yield": data.get("actual_yield"),
+            "actual_yield": harvest_yield,
             "harvested_at": datetime.now().isoformat(),
-            "notes": data.get("notes")
-        }).eq("id", cycle_id).execute()
-        return {"status": "ok"}
+        }
+        if data and data.get("notes"):
+            update_data["notes"] = data.get("notes")
+
+        supabase_admin.table("cycles").update(update_data).eq("id", cycle_id).execute()
+        
+        # Return updated cycle
+        full_cycle = supabase_admin.table("cycles") \
+            .select("*, cycle_checkins(*)") \
+            .eq("id", cycle_id) \
+            .execute()
+            
+        return full_cycle.data[0]
     except Exception as e:
+        print(f"Harvest error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/predictions")
